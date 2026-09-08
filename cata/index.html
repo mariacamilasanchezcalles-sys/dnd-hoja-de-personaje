@@ -187,12 +187,34 @@
   .wizard-progress span{flex:1; height:4px; border-radius:999px; background:var(--ash);}
   .wizard-progress span.done{background:var(--lava-glow);}
   .wizard-nav{display:flex; gap:10px; padding:16px;}
+
+  @media (min-width: 900px){
+    body{background:radial-gradient(ellipse at 50% -10%, rgba(255,59,31,.16), var(--bg) 55%);}
+    #app{max-width:1180px; padding:24px 28px 40px;}
+    .screen{min-height:auto;}
+    #screen-home.active{display:grid; grid-template-columns:minmax(0, 1.25fr) minmax(320px, .75fr); gap:20px; align-items:start;}
+    #screen-home .hero{grid-column:1 / -1; height:380px; min-height:0; border:1px solid var(--line); border-radius:18px; overflow:hidden;}
+    #screen-home .mini-hp{grid-column:1; padding:16px 0 0;}
+    #screen-home .row{grid-column:1; padding:0 0 4px !important;}
+    #screen-home .hub-grid{grid-column:1; padding:0; grid-template-columns:repeat(3, 1fr);}
+    #screen-home .hub-grid .rune-btn:last-child{grid-column:1 / -1;}
+    #screen-home .combat-cta{grid-column:2; grid-row:2 / span 3; margin:0; min-height:180px; display:flex; flex-direction:column; justify-content:center;}
+    .screen:not(#screen-home){max-width:1080px; margin:0 auto;}
+    .content{display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:14px; padding:0;}
+    .content > .card, .content > .ability-block, .content > .weapon-card{margin-bottom:0;}
+    .content > .card:last-child, .content > .btn{grid-column:1 / -1;}
+    .subheader{padding:10px 0 18px; position:relative; background:transparent;}
+    .combat-stage{max-width:760px; margin:0 auto;}
+    #screen-combat .card{max-width:760px; margin-left:auto; margin-right:auto;}
+    .combat-choices{display:grid; grid-template-columns:repeat(3, 1fr);}
+  }
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div class="save-toast" id="toast">Guardado</div>
 
+<script src="catalog.js"></script>
 <script>
 const STORAGE_KEY = 'cata-sheet-v1';
 
@@ -305,9 +327,11 @@ function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
 async function loadState(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if(res && res.value){
-      state = Object.assign(deepClone(DEFAULT_STATE), JSON.parse(res.value));
+    const stored = window.storage
+      ? await window.storage.get(STORAGE_KEY, false)
+      : {value: window.localStorage.getItem(STORAGE_KEY)};
+    if(stored && stored.value){
+      state = Object.assign(deepClone(DEFAULT_STATE), JSON.parse(stored.value));
       state.combat = Object.assign(deepClone(DEFAULT_STATE.combat), state.combat||{});
       migrateState();
     } else {
@@ -367,7 +391,12 @@ function migrateState(){
 }
 let saveTimer=null;
 async function saveState(silent){
-  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); if(!silent) showToast(); }
+  try{
+    const value = JSON.stringify(state);
+    if(window.storage) await window.storage.set(STORAGE_KEY, value, false);
+    else window.localStorage.setItem(STORAGE_KEY, value);
+    if(!silent) showToast();
+  }
   catch(e){ console.error(e); }
 }
 function showToast(){
@@ -596,7 +625,10 @@ function renderSpellsBody(){
           </div>
         </div>
       </div>`).join('')}</div>`).join('')}
-    <div class="card"><button class="btn ghost" id="addSpellBtn" style="width:100%;">+ Agregar conjuro</button></div>
+    <div class="card">
+      <div class="row"><select id="catalogSpell"><option value="">Importar desde catálogo...</option>${CATA_CATALOG.spells.map(s=>`<option value="${s.id}">${s.name} (nivel ${s.level})</option>`).join('')}</select><button class="btn small" id="importSpell">Añadir</button></div>
+      <button class="btn ghost" id="addSpellBtn" style="width:100%; margin-top:8px;">+ Crear conjuro personalizado</button>
+    </div>
   `;
 }
 
@@ -615,7 +647,9 @@ function renderTraitsBody(){
       </div>
     `).join('')}</div>
     <div class="card"><h3>Rasgos de clase</h3>${state.classFeatures.map(i=>`<div class="item"><div class="name">${i.name}</div><div class="desc">${i.desc}</div></div>`).join('')}</div>
-    <div class="card"><h3>Dotes</h3>${state.feats.map(i=>`<div class="item"><div class="name">${i.name}</div><div class="desc">${i.desc}</div></div>`).join('')}</div>
+    <div class="card"><h3>Dotes</h3>${state.feats.map(i=>`<div class="item"><div class="name">${i.name}</div><div class="desc">${i.desc}</div></div>`).join('')}
+      <div class="row" style="margin-top:8px;"><select id="catalogFeat"><option value="">Importar dote del catálogo...</option>${CATA_CATALOG.feats.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select><button class="btn small" id="importFeat">Añadir</button></div>
+    </div>
   `;
 }
 
@@ -661,18 +695,18 @@ function renderLevelUpBody(){
     <div class="wizard-step ${wizardStep===1?'active':''}">
       <div class="card"><h3>Paso 2 · Puntos de golpe</h3>
         <div class="field"><label>¿Cuántos PG máximos nuevos tira o gana?</label><input type="number" id="wzHpGain" placeholder="ej. 6"></div>
+        <div class="field"><label>Mejora de característica (opcional)</label><select id="wzAbility"><option value="">No aplicar</option>${Object.entries({str:'Fuerza',dex:'Destreza',con:'Constitución',int:'Inteligencia',wis:'Sabiduría',cha:'Carisma'}).map(([id,name])=>`<option value="${id}">${name} +1</option>`).join('')}</select></div>
         <p class="desc">Lo sumo a tu máximo actual (${state.hpMax}).</p>
       </div>
     </div>
 
     <div class="wizard-step ${wizardStep===2?'active':''}">
       <div class="card"><h3>Paso 3 · ¿Ganaste algo nuevo?</h3>
-        <div class="field"><label>Nueva invocación / rasgo (opcional)</label><input id="wzInvocation" placeholder="Nombre..."></div>
-        <div class="field"><label>Descripción breve</label><input id="wzInvocationDesc" placeholder="Qué hace..."></div>
-        <div class="field" style="margin-top:10px;"><label>Nuevo dote (opcional)</label><input id="wzFeat" placeholder="Nombre..."></div>
-        <div class="field"><label>Descripción breve</label><input id="wzFeatDesc" placeholder="Qué hace..."></div>
-        <div class="field" style="margin-top:10px;"><label>Nuevo conjuro (opcional)</label><input id="wzSpell" placeholder="Nombre..."></div>
-        <p class="desc">Deja en blanco lo que no aplique este nivel.</p>
+        <div class="field"><label>Invocación del catálogo</label><select id="wzInvocation"><option value="">No añadir</option>${CATA_CATALOG.invocations.map(i=>`<option value="${i.id}">${i.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Dote del catálogo</label><select id="wzFeat"><option value="">No añadir</option>${CATA_CATALOG.feats.map(i=>`<option value="${i.id}">${i.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Conjuro del catálogo</label><select id="wzSpell"><option value="">No añadir</option>${CATA_CATALOG.spells.map(i=>`<option value="${i.id}">${i.name} (nivel ${i.level})</option>`).join('')}</select></div>
+        <div class="field"><label>Rasgo de clase del catálogo</label><select id="wzFeature"><option value="">No añadir</option>${CATA_CATALOG.classFeatures.map(i=>`<option value="${i.id}">${i.name}</option>`).join('')}</select></div>
+        <p class="desc">Las opciones se cargan desde <strong>catalog.js</strong>. Para añadir algo nuevo, edita ese archivo y después selecciónalo aquí.</p>
       </div>
     </div>
 
@@ -805,6 +839,12 @@ function renderCombat(){
       </div>`;
   }
 
+  const importantInCombat = state.important && state.important.length ? `
+    <aside class="combat-memory card" style="margin:0 16px 14px; border-color:var(--lava); text-align:left;">
+      <h3>Importante recordar <small>consulta rápida</small></h3>
+      ${state.important.map(i=>`<div class="item"><div class="name">${i.name}</div><div class="desc">${i.desc}</div></div>`).join('')}
+    </aside>` : '';
+
   return `
   <section class="screen ${screen==='combat'?'active':''}" id="screen-combat">
     <div class="subheader">
@@ -826,6 +866,7 @@ function renderCombat(){
         <button class="btn small" style="flex:0 0 auto;" id="combatHeal">+ Curar</button>
       </div>
     </div>`:''}
+    ${importantInCombat}
     ${body}
   </section>`;
 }
@@ -889,6 +930,21 @@ function bindEvents(){
     const el = document.getElementById('edit-spell-'+id);
     if(el) el.style.display='block';
   };
+  const importSpell = document.getElementById('importSpell');
+  if(importSpell) importSpell.onclick = ()=>{
+    const selected = CATA_CATALOG.spells.find(s=>s.id===document.getElementById('catalogSpell').value);
+    if(!selected) return;
+    state.spells.push({...deepClone(selected), id:'s'+Date.now()});
+    saveState(); render();
+  };
+
+  const importFeat = document.getElementById('importFeat');
+  if(importFeat) importFeat.onclick = ()=>{
+    const selected = CATA_CATALOG.feats.find(f=>f.id===document.getElementById('catalogFeat').value);
+    if(!selected) return;
+    state.feats.push({...deepClone(selected), id:'ft'+Date.now()});
+    saveState(); render();
+  };
 
   // weapons
   document.querySelectorAll('[data-toggle-weapon]').forEach(el=>el.onclick=()=>{
@@ -933,12 +989,12 @@ function bindEvents(){
       wizardDraft.warlockLevel = parseInt(document.getElementById('wzWarlock').value)||state.warlockLevel;
     } else if(wizardStep===1){
       wizardDraft.hpGain = parseInt(document.getElementById('wzHpGain').value)||0;
+      wizardDraft.ability = document.getElementById('wzAbility').value;
     } else if(wizardStep===2){
-      wizardDraft.invocation = document.getElementById('wzInvocation').value.trim();
-      wizardDraft.invocationDesc = document.getElementById('wzInvocationDesc').value.trim();
-      wizardDraft.feat = document.getElementById('wzFeat').value.trim();
-      wizardDraft.featDesc = document.getElementById('wzFeatDesc').value.trim();
-      wizardDraft.spell = document.getElementById('wzSpell').value.trim();
+      wizardDraft.invocation = CATA_CATALOG.invocations.find(i=>i.id===document.getElementById('wzInvocation').value);
+      wizardDraft.feat = CATA_CATALOG.feats.find(i=>i.id===document.getElementById('wzFeat').value);
+      wizardDraft.spell = CATA_CATALOG.spells.find(i=>i.id===document.getElementById('wzSpell').value);
+      wizardDraft.feature = CATA_CATALOG.classFeatures.find(i=>i.id===document.getElementById('wzFeature').value);
     }
     if(wizardStep<3){
       wizardStep++;
@@ -947,9 +1003,11 @@ function bindEvents(){
         document.getElementById('wzSummary').innerHTML = `
           Guerrero ${wizardDraft.fighterLevel} / Brujo ${wizardDraft.warlockLevel}<br>
           PG máximos: ${state.hpMax} → ${state.hpMax+(wizardDraft.hpGain||0)}<br>
-          ${wizardDraft.invocation?('Nueva invocación: '+wizardDraft.invocation+'<br>'):''}
-          ${wizardDraft.feat?('Nuevo dote: '+wizardDraft.feat+'<br>'):''}
-          ${wizardDraft.spell?('Nuevo conjuro: '+wizardDraft.spell+'<br>'):''}
+          ${wizardDraft.ability?('Mejora: '+wizardDraft.ability+' +1<br>'):''}
+          ${wizardDraft.invocation?('Nueva invocación: '+wizardDraft.invocation.name+'<br>'):''}
+          ${wizardDraft.feat?('Nuevo dote: '+wizardDraft.feat.name+'<br>'):''}
+          ${wizardDraft.spell?('Nuevo conjuro: '+wizardDraft.spell.name+'<br>'):''}
+          ${wizardDraft.feature?('Nuevo rasgo: '+wizardDraft.feature.name+'<br>'):''}
         `;
         return;
       }
@@ -960,9 +1018,15 @@ function bindEvents(){
       state.warlockLevel = wizardDraft.warlockLevel;
       state.hpMax += (wizardDraft.hpGain||0);
       state.hpCurrent += (wizardDraft.hpGain||0);
-      if(wizardDraft.invocation) state.invocations.push({id:'i'+Date.now(), name:wizardDraft.invocation, desc:wizardDraft.invocationDesc||''});
-      if(wizardDraft.feat) state.feats.push({id:'ft'+Date.now(), name:wizardDraft.feat, desc:wizardDraft.featDesc||''});
-      if(wizardDraft.spell) state.spells.push({id:'s'+Date.now(), name:wizardDraft.spell, level:1, source:'Nuevo', dc:'DC 14', dmg:'', desc:'Agrega la descripción completa en la pestaña Conjuros.'});
+      if(wizardDraft.ability){
+        const ability = state.abilities[wizardDraft.ability];
+        ability.score += 1;
+        ability.mod = Math.floor((ability.score - 10) / 2);
+      }
+      if(wizardDraft.invocation) state.invocations.push({...deepClone(wizardDraft.invocation), id:'i'+Date.now()});
+      if(wizardDraft.feat) state.feats.push({...deepClone(wizardDraft.feat), id:'ft'+Date.now()});
+      if(wizardDraft.spell) state.spells.push({...deepClone(wizardDraft.spell), id:'s'+Date.now()});
+      if(wizardDraft.feature) state.classFeatures.push({...deepClone(wizardDraft.feature), id:'cf'+Date.now()});
       wizardStep=0; wizardDraft={};
       saveState(); goto('home');
     }
@@ -1058,6 +1122,7 @@ function bindEvents(){
   const restShort = document.getElementById('restShort');
   if(restShort) restShort.onclick = ()=>{
     state.spellSlotsUsed = 0;
+    state.secondWindUsed = 0;
     saveState(); render();
   };
   const restLong = document.getElementById('restLong');
